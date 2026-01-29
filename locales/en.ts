@@ -1,6 +1,6 @@
 export default {
   home: {
-    version: 'v8.0',
+    version: 'v8.2.7',
     prototype: 'Prototype by Ecolab Digital and Stain AI Team',
     identifyStain: 'Identify Stain',
     takePhoto: 'Take a photo to analyze',
@@ -16,7 +16,7 @@ export default {
     copyright: '© 2024 Ecolab Inc. • Advanced Stain Analysis',
     disclaimer: {
       title: 'Disclaimer',
-      subtitle: 'PROTOTYPE - RESEARCH USE ONLY v8.0',
+      subtitle: 'PROTOTYPE - RESEARCH USE ONLY v8.2.7',
       text: 'This application is a prototype developed for research purposes only to understand and analyze stains using artificial intelligence technology.',
       importantNotes: 'Important Notes:',
       note1: '• AI-generated results may not be completely accurate',

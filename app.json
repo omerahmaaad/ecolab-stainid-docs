@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Ecolab Stain ID AI v8.0",
+    "name": "Ecolab Stain ID AI v8.2.8",
     "slug": "opensource-stain-classifier-app-h8dbmj6y-wjmr6i65-mdbe7iba-245fw3w9",
-    "version": "8.2.7",
+    "version": "8.2.8",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",

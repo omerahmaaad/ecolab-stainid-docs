@@ -1,12 +1,18 @@
 import * as MailComposer from 'expo-mail-composer';
+import * as FileSystem from 'expo-file-system';
 import { Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const FEEDBACK_IMAGES_DIR = `${FileSystem.documentDirectory}feedback_images/`;
 
 export interface FeedbackEntry {
   id?: string;
   timestamp: number;
   imageWithFlash: string;
   imageWithoutFlash: string;
+  // File paths for images stored on disk (used instead of base64 for large datasets)
+  imageWithFlashPath?: string;
+  imageWithoutFlashPath?: string;
   predictedStainType: string;
   predictedCategory: string;
   userFeedback: 'correct' | 'incorrect';
@@ -14,6 +20,46 @@ export interface FeedbackEntry {
   correctedCategory?: string;
   modelUsed: string;
   confidence?: number;
+}
+
+// Ensure the feedback images directory exists
+async function ensureImageDirectory(): Promise<void> {
+  const dirInfo = await FileSystem.getInfoAsync(FEEDBACK_IMAGES_DIR);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(FEEDBACK_IMAGES_DIR, { intermediates: true });
+  }
+}
+
+// Save a base64 image to file and return the file path
+async function saveImageToFile(base64Data: string, filename: string): Promise<string> {
+  await ensureImageDirectory();
+  const filePath = `${FEEDBACK_IMAGES_DIR}${filename}`;
+
+  // Remove data URI prefix if present
+  const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
+
+  await FileSystem.writeAsStringAsync(filePath, cleanBase64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  return filePath;
+}
+
+// Load an image from file path as base64
+export async function loadImageFromFile(filePath: string): Promise<string | null> {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(filePath);
+    if (!fileInfo.exists) {
+      return null;
+    }
+    const base64 = await FileSystem.readAsStringAsync(filePath, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return `data:image/jpeg;base64,${base64}`;
+  } catch (error) {
+    console.error('[loadImageFromFile] Failed to load image:', error);
+    return null;
+  }
 }
 
 export interface FeedbackStats {
@@ -30,16 +76,50 @@ export interface FeedbackStats {
 export async function saveFeedback(feedback: FeedbackEntry, username: string = 'unknown'): Promise<void> {
   try {
     console.log('[saveFeedback] Saving feedback locally');
-    
+
+    const feedbackId = feedback.id || `fb_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    // Save images to file system instead of storing base64 in AsyncStorage
+    let imageWithFlashPath: string | undefined;
+    let imageWithoutFlashPath: string | undefined;
+
+    if (feedback.imageWithFlash) {
+      imageWithFlashPath = await saveImageToFile(
+        feedback.imageWithFlash,
+        `${feedbackId}_flash.jpg`
+      );
+      console.log('[saveFeedback] Saved flash image to:', imageWithFlashPath);
+    }
+
+    if (feedback.imageWithoutFlash) {
+      imageWithoutFlashPath = await saveImageToFile(
+        feedback.imageWithoutFlash,
+        `${feedbackId}_noflash.jpg`
+      );
+      console.log('[saveFeedback] Saved no-flash image to:', imageWithoutFlashPath);
+    }
+
     const existingData = await AsyncStorage.getItem('local_feedback');
     const localFeedback: FeedbackEntry[] = existingData ? JSON.parse(existingData) : [];
-    
-    const feedbackWithId = {
-      ...feedback,
-      id: feedback.id || `fb_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+
+    // Store metadata only (no base64 images) - images are stored as file paths
+    const feedbackMetadata: FeedbackEntry = {
+      id: feedbackId,
+      timestamp: feedback.timestamp,
+      imageWithFlash: '', // Clear base64 data
+      imageWithoutFlash: '', // Clear base64 data
+      imageWithFlashPath,
+      imageWithoutFlashPath,
+      predictedStainType: feedback.predictedStainType,
+      predictedCategory: feedback.predictedCategory,
+      userFeedback: feedback.userFeedback,
+      correctedStainType: feedback.correctedStainType,
+      correctedCategory: feedback.correctedCategory,
+      modelUsed: feedback.modelUsed,
+      confidence: feedback.confidence,
     };
-    
-    localFeedback.push(feedbackWithId);
+
+    localFeedback.push(feedbackMetadata);
     await AsyncStorage.setItem('local_feedback', JSON.stringify(localFeedback));
     console.log('[saveFeedback] Feedback saved locally successfully');
   } catch (error: any) {
@@ -59,6 +139,28 @@ export async function getFeedbackData(): Promise<FeedbackEntry[]> {
     console.error('[getFeedbackData] Failed to load local data:', error);
     return [];
   }
+}
+
+// Get feedback entry with images loaded from file system
+export async function getFeedbackWithImages(entry: FeedbackEntry): Promise<FeedbackEntry> {
+  const result = { ...entry };
+
+  // Load images from file paths if available
+  if (entry.imageWithFlashPath) {
+    const imageData = await loadImageFromFile(entry.imageWithFlashPath);
+    if (imageData) {
+      result.imageWithFlash = imageData;
+    }
+  }
+
+  if (entry.imageWithoutFlashPath) {
+    const imageData = await loadImageFromFile(entry.imageWithoutFlashPath);
+    if (imageData) {
+      result.imageWithoutFlash = imageData;
+    }
+  }
+
+  return result;
 }
 
 export async function getFeedbackStats(): Promise<FeedbackStats> {
@@ -125,6 +227,13 @@ export async function getFeedbackStats(): Promise<FeedbackStats> {
 
 export async function clearFeedbackData(): Promise<void> {
   try {
+    // Delete all image files in the feedback images directory
+    const dirInfo = await FileSystem.getInfoAsync(FEEDBACK_IMAGES_DIR);
+    if (dirInfo.exists) {
+      await FileSystem.deleteAsync(FEEDBACK_IMAGES_DIR, { idempotent: true });
+      console.log('[clearFeedbackData] Deleted feedback images directory');
+    }
+
     await AsyncStorage.removeItem('local_feedback');
     console.log('Feedback data cleared from local storage');
   } catch (error) {
@@ -134,6 +243,13 @@ export async function clearFeedbackData(): Promise<void> {
 
 export async function resetFeedbackStats(): Promise<void> {
   try {
+    // Delete all image files in the feedback images directory
+    const dirInfo = await FileSystem.getInfoAsync(FEEDBACK_IMAGES_DIR);
+    if (dirInfo.exists) {
+      await FileSystem.deleteAsync(FEEDBACK_IMAGES_DIR, { idempotent: true });
+      console.log('[resetFeedbackStats] Deleted feedback images directory');
+    }
+
     await AsyncStorage.removeItem('local_feedback');
     console.log('Feedback statistics reset to 0');
   } catch (error) {
@@ -343,5 +459,81 @@ export async function exportFeedbackToEmail(): Promise<{ success: boolean; messa
   } catch (error: any) {
     console.error('[exportFeedbackToEmail] Error:', error?.message || error);
     return { success: false, message: `Failed to export: ${error?.message || 'Unknown error'}` };
+  }
+}
+
+// Migrate existing feedback data from inline base64 to file-based storage
+// This should be called on app startup to prevent cursor window errors
+export async function migrateFeedbackToFileStorage(): Promise<{ migrated: number; errors: number }> {
+  let migrated = 0;
+  let errors = 0;
+
+  try {
+    console.log('[migrateFeedbackToFileStorage] Starting migration...');
+    const data = await AsyncStorage.getItem('local_feedback');
+    if (!data) {
+      console.log('[migrateFeedbackToFileStorage] No feedback data to migrate');
+      return { migrated: 0, errors: 0 };
+    }
+
+    const feedback: FeedbackEntry[] = JSON.parse(data);
+    const updatedFeedback: FeedbackEntry[] = [];
+
+    for (const entry of feedback) {
+      try {
+        // Check if already migrated (has file paths and no inline data)
+        const hasInlineFlash = entry.imageWithFlash && entry.imageWithFlash.length > 100;
+        const hasInlineNoFlash = entry.imageWithoutFlash && entry.imageWithoutFlash.length > 100;
+        const hasFilePaths = entry.imageWithFlashPath || entry.imageWithoutFlashPath;
+
+        if ((hasInlineFlash || hasInlineNoFlash) && !hasFilePaths) {
+          // Need to migrate this entry
+          const feedbackId = entry.id || `fb_${entry.timestamp}_${Math.random().toString(36).substring(7)}`;
+          let imageWithFlashPath: string | undefined;
+          let imageWithoutFlashPath: string | undefined;
+
+          if (hasInlineFlash) {
+            imageWithFlashPath = await saveImageToFile(
+              entry.imageWithFlash,
+              `${feedbackId}_flash.jpg`
+            );
+          }
+
+          if (hasInlineNoFlash) {
+            imageWithoutFlashPath = await saveImageToFile(
+              entry.imageWithoutFlash,
+              `${feedbackId}_noflash.jpg`
+            );
+          }
+
+          updatedFeedback.push({
+            ...entry,
+            id: feedbackId,
+            imageWithFlash: '', // Clear inline data
+            imageWithoutFlash: '', // Clear inline data
+            imageWithFlashPath,
+            imageWithoutFlashPath,
+          });
+          migrated++;
+        } else {
+          // Already migrated or no images
+          updatedFeedback.push(entry);
+        }
+      } catch (entryError) {
+        console.error('[migrateFeedbackToFileStorage] Failed to migrate entry:', entryError);
+        // Keep the original entry if migration fails
+        updatedFeedback.push(entry);
+        errors++;
+      }
+    }
+
+    // Save the updated feedback data
+    await AsyncStorage.setItem('local_feedback', JSON.stringify(updatedFeedback));
+    console.log(`[migrateFeedbackToFileStorage] Migration complete: ${migrated} migrated, ${errors} errors`);
+
+    return { migrated, errors };
+  } catch (error) {
+    console.error('[migrateFeedbackToFileStorage] Migration failed:', error);
+    return { migrated, errors: errors + 1 };
   }
 }

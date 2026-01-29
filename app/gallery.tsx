@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,12 +10,37 @@ import {
   FlatList,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { X, Calendar, CheckCircle, XCircle, Sparkles, Trash2, Folder, ChevronRight, Home, ArrowLeft, Mail, AlertTriangle } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { getFeedbackData, FeedbackEntry, resetFeedbackStats, exportFeedbackToEmail, exportStainPerformanceToEmail, getFeedbackStats } from "@/utils/feedback-storage";
+import { getFeedbackData, FeedbackEntry, resetFeedbackStats, exportFeedbackToEmail, exportStainPerformanceToEmail, getFeedbackStats, loadImageFromFile } from "@/utils/feedback-storage";
+
+// Helper to get image URI from entry (supports both inline base64 and file paths)
+const getImageUri = async (entry: FeedbackEntry, withFlash: boolean): Promise<string | null> => {
+  const inlineData = withFlash ? entry.imageWithFlash : entry.imageWithoutFlash;
+  const filePath = withFlash ? entry.imageWithFlashPath : entry.imageWithoutFlashPath;
+
+  // If we have inline data, use it
+  if (inlineData && inlineData.length > 0) {
+    const raw = inlineData.trim();
+    if (raw.startsWith('data:')) return raw;
+    const cleaned = raw.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    const isPng = cleaned.startsWith('iVBOR');
+    const isJpeg = cleaned.startsWith('/9j/');
+    const mime = isPng ? 'image/png' : (isJpeg ? 'image/jpeg' : 'image/jpeg');
+    return `data:${mime};base64,${cleaned}`;
+  }
+
+  // Otherwise, load from file path
+  if (filePath) {
+    return await loadImageFromFile(filePath);
+  }
+
+  return null;
+};
 
 interface StainFolder {
   stainType: string;
@@ -239,65 +264,78 @@ export default function GalleryScreen() {
     );
   };
 
-  const renderScanItem = ({ item }: { item: FeedbackEntry }) => {
-    const imageUri = (() => {
-      const raw = item.imageWithFlash.trim();
-      if (raw.startsWith('data:')) return raw;
-      const cleaned = raw.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
-      const isPng = cleaned.startsWith('iVBOR');
-      const isJpeg = cleaned.startsWith('/9j/');
-      const mime = isPng ? 'image/png' : (isJpeg ? 'image/jpeg' : 'image/jpeg');
-      return `data:${mime};base64,${cleaned}`;
-    })();
+  // Component for rendering scan items with async image loading
+  const ScanItem = ({ item }: { item: FeedbackEntry }) => {
+    const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
+    const [flashUri, setFlashUri] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const loadImages = async () => {
+        setLoading(true);
+        const [noFlash, withFlash] = await Promise.all([
+          getImageUri(item, false),
+          getImageUri(item, true),
+        ]);
+        setThumbnailUri(noFlash);
+        setFlashUri(withFlash);
+        setLoading(false);
+      };
+      loadImages();
+    }, [item]);
 
     return (
-    <TouchableOpacity
-      style={styles.scanCard}
-      onPress={() => setFullScreenImage({
-        uri: imageUri,
-        scan: item
-      })}
-    >
-      <Image
-        source={{ 
-          uri: (() => {
-            const raw = item.imageWithoutFlash.trim();
-            if (raw.startsWith('data:')) return raw;
-            const cleaned = raw.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
-            const isPng = cleaned.startsWith('iVBOR');
-            const isJpeg = cleaned.startsWith('/9j/');
-            const mime = isPng ? 'image/png' : (isJpeg ? 'image/jpeg' : 'image/jpeg');
-            return `data:${mime};base64,${cleaned}`;
-          })()
+      <TouchableOpacity
+        style={styles.scanCard}
+        onPress={() => {
+          if (flashUri) {
+            setFullScreenImage({
+              uri: flashUri,
+              scan: item
+            });
+          }
         }}
-        style={styles.scanThumbnail}
-      />
-      <View style={styles.scanInfo}>
-        <View style={styles.scanHeader}>
-          <Text style={styles.scanStainType}>
-            {item.predictedStainType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-          </Text>
-          {item.userFeedback === 'correct' ? (
-            <CheckCircle color="#4CAF50" size={16} />
-          ) : (
-            <XCircle color="#FF6B6B" size={16} />
+      >
+        {loading || !thumbnailUri ? (
+          <View style={[styles.scanThumbnail, styles.scanThumbnailLoading]}>
+            <ActivityIndicator size="small" color="#0066CC" />
+          </View>
+        ) : (
+          <Image
+            source={{ uri: thumbnailUri }}
+            style={styles.scanThumbnail}
+          />
+        )}
+        <View style={styles.scanInfo}>
+          <View style={styles.scanHeader}>
+            <Text style={styles.scanStainType}>
+              {item.predictedStainType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+            </Text>
+            {item.userFeedback === 'correct' ? (
+              <CheckCircle color="#4CAF50" size={16} />
+            ) : (
+              <XCircle color="#FF6B6B" size={16} />
+            )}
+          </View>
+          <Text style={styles.scanCategory}>{item.predictedCategory}</Text>
+          <View style={styles.scanFooter}>
+            <Calendar color="#999" size={12} />
+            <Text style={styles.scanDate}>{formatDate(item.timestamp)}</Text>
+          </View>
+          {item.userFeedback === 'incorrect' && item.correctedStainType && (
+            <View style={styles.correctionBadge}>
+              <Text style={styles.correctionText}>
+                Corrected to: {item.correctedStainType}
+              </Text>
+            </View>
           )}
         </View>
-        <Text style={styles.scanCategory}>{item.predictedCategory}</Text>
-        <View style={styles.scanFooter}>
-          <Calendar color="#999" size={12} />
-          <Text style={styles.scanDate}>{formatDate(item.timestamp)}</Text>
-        </View>
-        {item.userFeedback === 'incorrect' && item.correctedStainType && (
-          <View style={styles.correctionBadge}>
-            <Text style={styles.correctionText}>
-              Corrected to: {item.correctedStainType}
-            </Text>
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
+
+  const renderScanItem = ({ item }: { item: FeedbackEntry }) => {
+    return <ScanItem item={item} />;
   };
 
   return (
@@ -768,6 +806,11 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 12,
     marginRight: 12,
+  },
+  scanThumbnailLoading: {
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   scanInfo: {
     flex: 1,

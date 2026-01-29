@@ -1,6 +1,6 @@
 export default {
   home: {
-    version: 'v8.0',
+    version: 'v8.2.7',
     prototype: 'Prototipo de Ecolab Digital y el Equipo de IA de Manchas',
     identifyStain: 'Identificar Mancha',
     takePhoto: 'Tomar una foto para analizar',
@@ -16,7 +16,7 @@ export default {
     copyright: '© 2024 Ecolab Inc. • Análisis Avanzado de Manchas',
     disclaimer: {
       title: 'Descargo de Responsabilidad',
-      subtitle: 'PROTOTIPO - SOLO PARA USO DE INVESTIGACIÓN v8.0',
+      subtitle: 'PROTOTIPO - SOLO PARA USO DE INVESTIGACIÓN v8.2.7',
       text: 'Esta aplicación es un prototipo desarrollado solo para fines de investigación para comprender y analizar manchas utilizando tecnología de inteligencia artificial.',
       importantNotes: 'Notas Importantes:',
       note1: '• Los resultados generados por IA pueden no ser completamente precisos',

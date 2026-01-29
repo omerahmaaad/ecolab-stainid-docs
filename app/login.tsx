@@ -194,7 +194,7 @@ export default function LoginScreen() {
                 <Text style={styles.footerText}>
                   © 2024 Ecolab Inc. All Rights Reserved
                 </Text>
-                <Text style={styles.footerVersion}>Version 1.1</Text>
+                <Text style={styles.footerVersion}>Version 8.2.7</Text>
               </View>
             </View>
           </KeyboardAvoidingView>

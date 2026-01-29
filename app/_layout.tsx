@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from "@/hooks/auth-context";
 import LoginScreen from "@/app/login";
 import { trpc, trpcClient } from "@/lib/trpc";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { migrateFeedbackToFileStorage } from "@/utils/feedback-storage";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -104,6 +105,19 @@ export default function RootLayout() {
     const initApp = async () => {
       try {
         console.log('[RootLayout] Starting initialization...');
+
+        // Migrate feedback images from inline base64 to file storage
+        // This prevents the Android cursor window size limit error
+        try {
+          const migrationResult = await migrateFeedbackToFileStorage();
+          if (migrationResult.migrated > 0) {
+            console.log(`[RootLayout] Migrated ${migrationResult.migrated} feedback entries to file storage`);
+          }
+        } catch (migrationError) {
+          console.warn('[RootLayout] Feedback migration failed:', migrationError);
+          // Non-critical, continue app initialization
+        }
+
         setAppReady(true);
         await SplashScreen.hideAsync().catch(() => {});
         console.log('[RootLayout] App ready');
